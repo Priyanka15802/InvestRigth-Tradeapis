@@ -205,6 +205,12 @@ def auth_verify_otp():
     if not ok:
         return jsonify({"error": "Step 5 (authorise) failed", "detail": body}), status
 
+    # Diagnostic only: Step 5's response contains no secrets (tokenId/
+    # requestToken/consent are session identifiers, not credentials), so
+    # it's safe to log in full. Useful if Step 6 still fails after this
+    # change -- check this line for what Step 5 actually returned.
+    log.info("Step 5 response body: %s", body)
+
     # Some HDFC deployments return a refreshed request_token from
     # authorise; if present, prefer it for Step 6. Otherwise keep the one
     # from Step 3. (No confirmed sample response for this step was
@@ -221,11 +227,22 @@ def auth_verify_otp():
                   list(body.keys()) if isinstance(body, dict) else type(body))
 
     # STEP 6: POST /access-token?api_key=...&request_token=... {apiSecret} -> { accessToken }
+    #
+    # The original curl sample for this step had no Authorization header,
+    # but live testing returned {"error": "authorization not provided"}
+    # with that exact request shape. Every other step in this flow carries
+    # the session forward via token_id, so as a best-effort fix this now
+    # sends it as the Authorization header too, matching the pattern used
+    # by the trading endpoints (Authorization: <access_token>). If Step 6
+    # still fails with the same error after this change, check the
+    # "Step 5 response body" log line above for a field that looks like it
+    # should be used here instead, and swap token_id for that value.
     ok, status, body = hdfc_call(
         "POST",
         "/access-token",
         params={"api_key": API_KEY, "request_token": request_token},
         json_body={"apiSecret": API_SECRET},
+        auth_token=token_id,
     )
     if not ok:
         return jsonify({"error": "Step 6 (get access token) failed", "detail": body}), status
