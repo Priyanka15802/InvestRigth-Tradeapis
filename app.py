@@ -278,6 +278,59 @@ def auth_resend_otp():
 
 
 # ---------------------------------------------------------------------------
+# TEMPORARY DEBUG ROUTE - remove once Step 6's auth requirement is confirmed.
+#
+# Reuses the tokenId/requestToken already captured in SESSION from the last
+# /api/auth/verify-otp call (populated even when that call ultimately failed
+# at Step 6), so multiple Authorization header hypotheses can be tried
+# against the live HDFC API without repeating the OTP flow each time.
+# ---------------------------------------------------------------------------
+
+@app.route("/api/auth/debug-step6", methods=["POST"])
+def debug_step6():
+    data = request.get_json(silent=True) or {}
+    scheme = data.get("scheme", "none")
+
+    with SESSION_LOCK:
+        token_id = SESSION.get("tokenId")
+        request_token = SESSION.get("requestToken")
+
+    if not token_id or not request_token:
+        return jsonify({
+            "error": "No pending login session. Run Start Login + Submit OTP at least once first "
+                     "(it's fine if Step 6 fails) -- this reuses the token_id/request_token from that attempt."
+        }), 409
+
+    if scheme == "none":
+        auth_header = None
+    elif scheme == "token_id":
+        auth_header = token_id
+    elif scheme == "request_token":
+        auth_header = request_token
+    elif scheme == "api_secret":
+        auth_header = API_SECRET
+    elif scheme == "api_key":
+        auth_header = API_KEY
+    elif scheme == "bearer_token_id":
+        auth_header = f"Bearer {token_id}"
+    elif scheme == "basic_key_secret":
+        import base64
+        auth_header = "Basic " + base64.b64encode(f"{API_KEY}:{API_SECRET}".encode()).decode()
+    else:
+        return jsonify({"error": f"Unknown scheme '{scheme}'. Valid: none, token_id, request_token, "
+                                  f"api_secret, api_key, bearer_token_id, basic_key_secret"}), 400
+
+    ok, status, body = hdfc_call(
+        "POST",
+        "/access-token",
+        params={"api_key": API_KEY, "request_token": request_token},
+        json_body={"apiSecret": API_SECRET},
+        auth_token=auth_header,
+    )
+    return jsonify({"scheme": scheme, "ok": ok, "status": status, "body": body})
+
+
+# ---------------------------------------------------------------------------
 # Trading routes - require a completed login
 # ---------------------------------------------------------------------------
 
