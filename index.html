@@ -1,0 +1,520 @@
+<title>HDFC IR Order + LTP Tool</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --border: #2a3346;
+    --text: #e7ebf3;
+    --muted: #8a94a8;
+    --accent: #4f8cff;
+    --danger: #ff5d5d;
+    --ok: #37c26f;
+    --warn: #e0a52c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+    max-width: 640px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .field { flex: 1; min-width: 140px; }
+  input, select {
+    width: 100%;
+    padding: 8px 10px;
+    background: #0d1220;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 14px;
+  }
+  button {
+    padding: 9px 16px;
+    border-radius: 6px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  a.link { color: var(--accent); cursor: pointer; font-size: 13px; }
+  .status { font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--danger); white-space: pre-wrap; word-break: break-word; }
+  .status.pending { color: var(--warn); }
+  .hidden { display: none !important; }
+  pre {
+    background: #0d1220;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 12px;
+    overflow-x: auto;
+    max-height: 240px;
+  }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; }
+  .checkbox-row input { width: auto; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.dry { background: rgba(224,165,44,0.15); color: var(--warn); }
+  .badge.live { background: rgba(255,93,93,0.15); color: var(--danger); }
+  .muted { color: var(--muted); font-size: 12px; }
+  fieldset { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; }
+  legend { color: var(--muted); font-size: 12px; padding: 0 6px; }
+</style>
+
+<h1>HDFC IR Order + LTP Tool</h1>
+<div class="sub">Local proxy tool for the HDFC Securities InvestRight Open API. Runs against your own backend at this origin.</div>
+
+<!-- LOGIN PANEL -->
+<div class="panel" id="loginPanel">
+  <h2>Login</h2>
+  <div class="row">
+    <button id="btnStart">Start Login</button>
+  </div>
+  <div id="startStatus" class="status"></div>
+
+  <div id="otpBlock" class="hidden">
+    <div class="row">
+      <div class="field">
+        <label>OTP</label>
+        <input id="otpInput" type="text" inputmode="numeric" placeholder="6-digit code" />
+      </div>
+    </div>
+    <div class="row">
+      <button id="btnVerifyOtp">Submit OTP</button>
+      <a class="link" id="btnResendOtp">Resend OTP</a>
+    </div>
+    <div id="otpStatus" class="status"></div>
+  </div>
+</div>
+
+<!-- LTP PANEL -->
+<div class="panel hidden" id="ltpPanel">
+  <h2>Last Traded Price</h2>
+  <div class="muted" style="margin-bottom:10px;">
+    HDFC's fetch-ltp endpoint needs the exchange and numeric security token (not a trading symbol string).
+  </div>
+  <div class="row">
+    <div class="field" style="max-width:120px;">
+      <label>Exchange</label>
+      <select id="ltpExchange">
+        <option value="NSE">NSE</option>
+        <option value="BSE">BSE</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Token</label>
+      <input id="ltpToken" type="text" placeholder="e.g. 21840" />
+    </div>
+    <div class="field checkbox-row" style="max-width:180px; margin-top:18px;">
+      <input type="checkbox" id="ltpAutoRefresh" />
+      <label style="margin:0;">Auto-refresh (5s)</label>
+    </div>
+  </div>
+  <div class="row">
+    <button id="btnGetLtp">Get LTP</button>
+    <span class="muted" id="ltpUpdated"></span>
+  </div>
+  <div id="ltpStatus" class="status"></div>
+  <div id="ltpValue" style="font-size:28px; font-weight:700; margin:10px 0;"></div>
+  <pre id="ltpRaw" class="hidden"></pre>
+</div>
+
+<!-- ORDER PANEL -->
+<div class="panel hidden" id="orderPanel">
+  <h2>Orders</h2>
+
+  <div class="row checkbox-row">
+    <input type="checkbox" id="dryRunToggle" checked />
+    <label style="margin:0;">DRY RUN (orders are logged, not sent live)</label>
+    <span class="badge dry" id="dryRunBadge">DRY RUN</span>
+  </div>
+
+  <fieldset>
+    <legend>Order details</legend>
+    <div class="row">
+      <div class="field">
+        <label>Security ID / Token</label>
+        <input id="ordSecurityId" placeholder="e.g. WIPLTDEQNR" />
+      </div>
+      <div class="field">
+        <label>Exchange</label>
+        <select id="ordExchange">
+          <option value="NSE">NSE</option>
+          <option value="BSE">BSE</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Instrument Segment</label>
+        <select id="ordSegment">
+          <option value="EQUITY">EQUITY</option>
+          <option value="DERIVATIVE">DERIVATIVE</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Transaction Type</label>
+        <select id="ordTxnType">
+          <option value="Buy">BUY</option>
+          <option value="Sell">SELL</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Order Type</label>
+        <select id="ordType">
+          <option value="MARKET">MARKET</option>
+          <option value="LIMIT">LIMIT</option>
+          <option value="SL">SL</option>
+          <option value="SL-M">SL-M</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Product</label>
+        <select id="ordProduct">
+          <option value="DELIVERY">DELIVERY</option>
+          <option value="INTRADAY">INTRADAY</option>
+          <option value="MARGIN">MARGIN</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Quantity</label>
+        <input id="ordQty" type="number" min="1" step="1" value="1" />
+      </div>
+      <div class="field">
+        <label>Disclosed Qty</label>
+        <input id="ordDiscQty" type="number" min="0" step="1" value="0" />
+      </div>
+      <div class="field">
+        <label>Validity</label>
+        <select id="ordValidity">
+          <option value="DAY">DAY</option>
+          <option value="IOC">IOC</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Price (LIMIT/SL)</label>
+        <input id="ordPrice" type="number" min="0" step="0.05" value="0" />
+      </div>
+      <div class="field">
+        <label>Trigger Price (SL/SL-M)</label>
+        <input id="ordTrigger" type="number" min="0" step="0.05" value="0" />
+      </div>
+      <div class="field checkbox-row" style="margin-top:18px;">
+        <input type="checkbox" id="ordAmo" />
+        <label style="margin:0;">AMO</label>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>External Reference No. (optional)</label>
+        <input id="ordExtRef" type="text" />
+      </div>
+      <div class="field">
+        <label>Order ID (for Modify / Cancel)</label>
+        <input id="ordOrderId" type="text" placeholder="e.g. 24042500000504" />
+      </div>
+    </div>
+  </fieldset>
+
+  <div class="row">
+    <button id="btnPlace">Place Order</button>
+    <button id="btnModify" class="secondary">Modify Order</button>
+    <button id="btnCancel" class="danger">Cancel Order</button>
+  </div>
+  <div id="orderStatus" class="status"></div>
+  <div id="orderIdOut" class="muted"></div>
+  <pre id="orderRaw" class="hidden"></pre>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function setStatus(el, text, cls) {
+  el.textContent = text || "";
+  el.className = "status" + (cls ? " " + cls : "");
+}
+
+function withLoading(button, fn) {
+  return async (...args) => {
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "Loading...";
+    try {
+      await fn(...args);
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  };
+}
+
+async function callApi(path, options) {
+  let res, body;
+  try {
+    res = await fetch(path, options);
+  } catch (e) {
+    throw new Error("Network error: " + e.message);
+  }
+  try {
+    body = await res.json();
+  } catch (e) {
+    body = { error: "Invalid JSON response from server" };
+  }
+  if (!res.ok) {
+    const detail = body && body.detail ? "\n" + JSON.stringify(body.detail, null, 2) : "";
+    throw new Error((body && body.error ? body.error : "Request failed") + detail);
+  }
+  return body;
+}
+
+// ---------------- Login ----------------
+
+$("btnStart").addEventListener("click", withLoading($("btnStart"), async () => {
+  const statusEl = $("startStatus");
+  setStatus(statusEl, "Starting login...", "pending");
+  try {
+    const result = await callApi("/api/auth/start", { method: "POST" });
+    setStatus(statusEl, "OTP sent. Enter the code below.", "ok");
+    $("otpBlock").classList.remove("hidden");
+  } catch (e) {
+    setStatus(statusEl, e.message, "err");
+  }
+}));
+
+$("btnVerifyOtp").addEventListener("click", withLoading($("btnVerifyOtp"), async () => {
+  const statusEl = $("otpStatus");
+  const otp = $("otpInput").value.trim();
+  if (!otp) {
+    setStatus(statusEl, "Enter the OTP first.", "err");
+    return;
+  }
+  setStatus(statusEl, "Verifying OTP...", "pending");
+  try {
+    await callApi("/api/auth/verify-otp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ otp }),
+    });
+    setStatus(statusEl, "Logged in.", "ok");
+    $("loginPanel").classList.add("hidden");
+    $("ltpPanel").classList.remove("hidden");
+    $("orderPanel").classList.remove("hidden");
+  } catch (e) {
+    setStatus(statusEl, e.message, "err");
+  }
+}));
+
+$("btnResendOtp").addEventListener("click", async () => {
+  const statusEl = $("otpStatus");
+  setStatus(statusEl, "Resending OTP...", "pending");
+  try {
+    await callApi("/api/auth/resend-otp", { method: "POST" });
+    setStatus(statusEl, "OTP resent.", "ok");
+  } catch (e) {
+    setStatus(statusEl, e.message, "err");
+  }
+});
+
+async function checkInitialStatus() {
+  try {
+    const result = await callApi("/api/auth/status", { method: "GET" });
+    if (result.loggedIn) {
+      $("loginPanel").classList.add("hidden");
+      $("ltpPanel").classList.remove("hidden");
+      $("orderPanel").classList.remove("hidden");
+    }
+  } catch (e) {
+    // ignore - just show the login panel
+  }
+}
+checkInitialStatus();
+
+// ---------------- LTP ----------------
+
+let ltpTimer = null;
+
+$("btnGetLtp").addEventListener("click", withLoading($("btnGetLtp"), fetchLtp));
+
+async function fetchLtp() {
+  const statusEl = $("ltpStatus");
+  const exchange = $("ltpExchange").value;
+  const token = $("ltpToken").value.trim();
+  if (!token) {
+    setStatus(statusEl, "Enter a token.", "err");
+    return;
+  }
+  setStatus(statusEl, "Fetching...", "pending");
+  try {
+    const result = await callApi(`/api/ltp?exchange=${encodeURIComponent(exchange)}&token=${encodeURIComponent(token)}`, { method: "GET" });
+    setStatus(statusEl, "OK", "ok");
+    $("ltpRaw").textContent = JSON.stringify(result, null, 2);
+    $("ltpRaw").classList.remove("hidden");
+    const entry = Array.isArray(result && result.data) ? result.data[0] : null;
+    const ltp = entry ? (entry.ltp ?? entry.last_traded_price ?? entry.lastTradedPrice) : undefined;
+    $("ltpValue").textContent = ltp !== undefined ? ltp : "(see raw JSON below)";
+    $("ltpUpdated").textContent = "Last updated: " + new Date().toLocaleTimeString();
+  } catch (e) {
+    setStatus(statusEl, e.message, "err");
+  }
+}
+
+$("ltpAutoRefresh").addEventListener("change", (e) => {
+  if (ltpTimer) { clearInterval(ltpTimer); ltpTimer = null; }
+  if (e.target.checked) {
+    ltpTimer = setInterval(fetchLtp, 5000);
+  }
+});
+
+// ---------------- Orders ----------------
+
+$("dryRunToggle").addEventListener("change", () => {
+  const on = $("dryRunToggle").checked;
+  const badge = $("dryRunBadge");
+  badge.textContent = on ? "DRY RUN" : "LIVE";
+  badge.className = "badge " + (on ? "dry" : "live");
+});
+
+function readOrderForm() {
+  return {
+    exchange: $("ordExchange").value,
+    security_id: $("ordSecurityId").value.trim(),
+    instrument_segment: $("ordSegment").value,
+    transaction_type: $("ordTxnType").value,
+    order_type: $("ordType").value,
+    product: $("ordProduct").value,
+    quantity: parseInt($("ordQty").value, 10),
+    disclosed_quantity: parseInt($("ordDiscQty").value || "0", 10),
+    validity: $("ordValidity").value,
+    price: parseFloat($("ordPrice").value || "0"),
+    trigger_price: parseFloat($("ordTrigger").value || "0"),
+    amo: $("ordAmo").checked,
+    external_reference_number: $("ordExtRef").value.trim() || undefined,
+    dryRun: $("dryRunToggle").checked,
+  };
+}
+
+function validateOrderForm(data, needsOrderId) {
+  const errors = [];
+  if (needsOrderId && !$("ordOrderId").value.trim()) errors.push("Order ID is required.");
+  if (!data.security_id) errors.push("Security ID / Token is required.");
+  if (!data.quantity || data.quantity <= 0) errors.push("Quantity must be greater than 0.");
+  if (["LIMIT", "SL"].includes(data.order_type) && (!data.price || data.price <= 0)) {
+    errors.push("Price is required for LIMIT/SL orders.");
+  }
+  if (["SL", "SL-M"].includes(data.order_type) && (!data.trigger_price || data.trigger_price <= 0)) {
+    errors.push("Trigger price is required for SL/SL-M orders.");
+  }
+  return errors;
+}
+
+function renderOrderResult(result) {
+  $("orderRaw").textContent = JSON.stringify(result, null, 2);
+  $("orderRaw").classList.remove("hidden");
+  const orderId = result.order_id || result.orderId || (result.data && (result.data.order_id || result.data.orderId));
+  $("orderIdOut").textContent = orderId ? ("Order ID: " + orderId) : "";
+}
+
+$("btnPlace").addEventListener("click", withLoading($("btnPlace"), async () => {
+  const statusEl = $("orderStatus");
+  const data = readOrderForm();
+  const errors = validateOrderForm(data, false);
+  if (errors.length) {
+    setStatus(statusEl, errors.join("\n"), "err");
+    return;
+  }
+  if (!data.dryRun && !confirm("DRY RUN is OFF. This will place a REAL order. Continue?")) {
+    return;
+  }
+  setStatus(statusEl, "Placing order...", "pending");
+  try {
+    const result = await callApi("/api/order/place", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    setStatus(statusEl, result.dryRun ? "DRY RUN: request logged, not sent." : "Order placed.", "ok");
+    renderOrderResult(result);
+  } catch (e) {
+    setStatus(statusEl, e.message, "err");
+  }
+}));
+
+$("btnModify").addEventListener("click", withLoading($("btnModify"), async () => {
+  const statusEl = $("orderStatus");
+  const orderId = $("ordOrderId").value.trim();
+  const data = readOrderForm();
+  const errors = validateOrderForm(data, true);
+  if (errors.length) {
+    setStatus(statusEl, errors.join("\n"), "err");
+    return;
+  }
+  data.order_id = orderId;
+  setStatus(statusEl, "Modifying order...", "pending");
+  try {
+    const result = await callApi("/api/order/modify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    setStatus(statusEl, result.dryRun ? "DRY RUN: request logged, not sent." : "Order modified.", "ok");
+    renderOrderResult(result);
+  } catch (e) {
+    setStatus(statusEl, e.message, "err");
+  }
+}));
+
+$("btnCancel").addEventListener("click", withLoading($("btnCancel"), async () => {
+  const statusEl = $("orderStatus");
+  const orderId = $("ordOrderId").value.trim();
+  const dryRun = $("dryRunToggle").checked;
+  if (!orderId) {
+    setStatus(statusEl, "Order ID is required.", "err");
+    return;
+  }
+  if (!dryRun && !confirm("DRY RUN is OFF. This will CANCEL a REAL order. Continue?")) {
+    return;
+  }
+  setStatus(statusEl, "Cancelling order...", "pending");
+  try {
+    const result = await callApi("/api/order/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order_id: orderId, dryRun }),
+    });
+    setStatus(statusEl, result.dryRun ? "DRY RUN: request logged, not sent." : "Order cancelled.", "ok");
+    renderOrderResult(result);
+  } catch (e) {
+    setStatus(statusEl, e.message, "err");
+  }
+}));
+</script>
