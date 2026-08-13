@@ -228,21 +228,17 @@ def auth_verify_otp():
 
     # STEP 6: POST /access-token?api_key=...&request_token=... {apiSecret} -> { accessToken }
     #
-    # The original curl sample for this step had no Authorization header,
-    # but live testing returned {"error": "authorization not provided"}
-    # with that exact request shape. Every other step in this flow carries
-    # the session forward via token_id, so as a best-effort fix this now
-    # sends it as the Authorization header too, matching the pattern used
-    # by the trading endpoints (Authorization: <access_token>). If Step 6
-    # still fails with the same error after this change, check the
-    # "Step 5 response body" log line above for a field that looks like it
-    # should be used here instead, and swap token_id for that value.
+    # Matches the reference curl exactly: no Authorization header. An
+    # earlier attempt added one (Authorization: token_id) as a guess after
+    # this exact no-header request returned {"error": "authorization not
+    # provided"} -- that guess also failed (401), so this has been reverted
+    # back to the literal curl shape pending confirmation from HDFC on what
+    # the real requirement is.
     ok, status, body = hdfc_call(
         "POST",
         "/access-token",
         params={"api_key": API_KEY, "request_token": request_token},
         json_body={"apiSecret": API_SECRET},
-        auth_token=token_id,
     )
     if not ok:
         return jsonify({"error": "Step 6 (get access token) failed", "detail": body}), status
