@@ -22,17 +22,12 @@ session (in memory only, never written to disk):
 | 5 | `GET /authorise?api_key=...&token_id=...&consent=...&request_token=...` | if the response includes its own request token field, that value is used for step 6 instead; otherwise step 3's token is reused |
 | 6 | `POST /access-token?api_key=...&request_token=...` `{apiSecret}` | response `accessToken` -> stored for all trading calls |
 
-Step 5's response shape wasn't available while building this, so the
-fallback logic above is a best-effort guess. If `/api/auth/verify-otp`
-fails at the Step 6 call, check the server log line
-`"Step 5 response had no request token field (keys: ...)"` — it prints the
-response's field names (never values) so you can update the candidate
-list in `find_field(body, ["requestToken", "request_token"])` inside
-`app.py` (`auth_verify_otp`) to match whatever HDFC actually returns.
-
-`consent` and the `api_key` are fixed values read from `.env`
-(`HDFC_CONSENT`, `HDFC_API_KEY`) — confirm the expected consent value
-with HDFC if `/authorise` rejects it.
+**`HDFC_CONSENT` must be the lowercase string `true`.** This was found by
+live testing: any other value (`Y`, `True`, etc.) still lets Step 5
+succeed, but silently leaves the session unauthorised on HDFC's side, and
+Step 6 then fails with `{"error": "authorization not provided"}` even
+though Step 6's own request is unchanged. `.env.example` already defaults
+to the correct value — don't override it.
 
 ## Project layout
 
