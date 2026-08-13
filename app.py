@@ -22,7 +22,7 @@ API_KEY = os.environ.get("HDFC_API_KEY", "")
 API_SECRET = os.environ.get("HDFC_API_SECRET", "")
 USERNAME = os.environ.get("HDFC_USERNAME", "")
 PASSWORD = os.environ.get("HDFC_PASSWORD", "")
-CONSENT = os.environ.get("HDFC_CONSENT", "Y")
+CONSENT = os.environ.get("HDFC_CONSENT", "true")
 BASE_URL = os.environ.get("HDFC_BASE_URL", "https://developer.hdfcsec.com/oapi/v1").rstrip("/")
 USER_AGENT = os.environ.get(
     "HDFC_USER_AGENT",
@@ -205,35 +205,15 @@ def auth_verify_otp():
     if not ok:
         return jsonify({"error": "Step 5 (authorise) failed", "detail": body}), status
 
-    # Diagnostic only: Step 5's response contains no secrets (tokenId/
-    # requestToken/consent are session identifiers, not credentials), so
-    # it's safe to log in full. Useful if Step 6 still fails after this
-    # change -- check this line for what Step 5 actually returned.
-    log.info("Step 5 response body: %s", body)
-
-    # Some HDFC deployments return a refreshed request_token from
-    # authorise; if present, prefer it for Step 6. Otherwise keep the one
-    # from Step 3. (No confirmed sample response for this step was
-    # available at build time -- if Step 6 fails, check server logs for
-    # "Step 5 response keys" and adjust find_field()'s candidate list.)
+    # Step 5's response is {callbackUrl, requestToken}; if it includes a
+    # refreshed requestToken, prefer it for Step 6.
     refreshed_token = find_field(body, ["requestToken", "request_token"])
     if refreshed_token:
-        log.info("Step 5 response included a request token field; using it for Step 6.")
         with SESSION_LOCK:
             SESSION["requestToken"] = refreshed_token
             request_token = refreshed_token
-    else:
-        log.info("Step 5 response had no request token field (keys: %s); reusing Step 3's token for Step 6.",
-                  list(body.keys()) if isinstance(body, dict) else type(body))
 
     # STEP 6: POST /access-token?api_key=...&request_token=... {apiSecret} -> { accessToken }
-    #
-    # Matches the reference curl exactly: no Authorization header. An
-    # earlier attempt added one (Authorization: token_id) as a guess after
-    # this exact no-header request returned {"error": "authorization not
-    # provided"} -- that guess also failed (401), so this has been reverted
-    # back to the literal curl shape pending confirmation from HDFC on what
-    # the real requirement is.
     ok, status, body = hdfc_call(
         "POST",
         "/access-token",
@@ -271,59 +251,6 @@ def auth_resend_otp():
         return jsonify({"error": "Step 4 (resend OTP) failed", "detail": body}), status
 
     return jsonify({"status": "otp_resent"})
-
-
-# ---------------------------------------------------------------------------
-# TEMPORARY DEBUG ROUTE - remove once Step 6's auth requirement is confirmed.
-#
-# Reuses the tokenId/requestToken already captured in SESSION from the last
-# /api/auth/verify-otp call (populated even when that call ultimately failed
-# at Step 6), so multiple Authorization header hypotheses can be tried
-# against the live HDFC API without repeating the OTP flow each time.
-# ---------------------------------------------------------------------------
-
-@app.route("/api/auth/debug-step6", methods=["POST"])
-def debug_step6():
-    data = request.get_json(silent=True) or {}
-    scheme = data.get("scheme", "none")
-
-    with SESSION_LOCK:
-        token_id = SESSION.get("tokenId")
-        request_token = SESSION.get("requestToken")
-
-    if not token_id or not request_token:
-        return jsonify({
-            "error": "No pending login session. Run Start Login + Submit OTP at least once first "
-                     "(it's fine if Step 6 fails) -- this reuses the token_id/request_token from that attempt."
-        }), 409
-
-    if scheme == "none":
-        auth_header = None
-    elif scheme == "token_id":
-        auth_header = token_id
-    elif scheme == "request_token":
-        auth_header = request_token
-    elif scheme == "api_secret":
-        auth_header = API_SECRET
-    elif scheme == "api_key":
-        auth_header = API_KEY
-    elif scheme == "bearer_token_id":
-        auth_header = f"Bearer {token_id}"
-    elif scheme == "basic_key_secret":
-        import base64
-        auth_header = "Basic " + base64.b64encode(f"{API_KEY}:{API_SECRET}".encode()).decode()
-    else:
-        return jsonify({"error": f"Unknown scheme '{scheme}'. Valid: none, token_id, request_token, "
-                                  f"api_secret, api_key, bearer_token_id, basic_key_secret"}), 400
-
-    ok, status, body = hdfc_call(
-        "POST",
-        "/access-token",
-        params={"api_key": API_KEY, "request_token": request_token},
-        json_body={"apiSecret": API_SECRET},
-        auth_token=auth_header,
-    )
-    return jsonify({"scheme": scheme, "ok": ok, "status": status, "body": body})
 
 
 # ---------------------------------------------------------------------------
